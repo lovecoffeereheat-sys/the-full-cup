@@ -231,17 +231,13 @@ textarea{resize:vertical}
   <div class="setup-box">
     <p class="setup-eyebrow">Bottom of the Cup</p>
     <h2 class="setup-title"><em>The Full Cup</em></h2>
-    <p class="setup-sub">Add your Anthropic key to get started. It stays in your browser session only.</p>
+    <p class="setup-sub">Add your Anthropic key to get started. It stays in your browser session only. Notion is handled server-side.</p>
     <div class="setup-field">
       <label>Anthropic API Key</label>
       <input type="password" id="setupAK" placeholder="sk-ant-api03-..." autocomplete="off"/>
       <p class="setup-hint">From console.anthropic.com — handles AI sorting and Notion saves</p>
     </div>
-    <div class="setup-field">
-      <label>Notion API Key</label>
-      <input type="password" id="setupNK" placeholder="secret_..." autocomplete="off"/>
-      <p class="setup-hint">From notion.so/my-integrations — needed for all Notion reads and writes</p>
-    </div>
+
     <button class="setup-btn" onclick="saveKeys()">pour it in &rarr;</button>
     <p class="setup-note">Keys disappear when you close the tab.</p>
   </div>
@@ -546,41 +542,34 @@ const NOTION_VERSION='2022-06-28';
 const inClaude=typeof sendPrompt==='function';
 
 function getAK(){return sessionStorage.getItem('cg_ak')||''}
-function getNK(){return sessionStorage.getItem('cg_nk')||''}
 function saveKeys(){
   const ak=document.getElementById('setupAK').value.trim();
   if(!ak){showToast('add your Anthropic key');return}
-  const nk=document.getElementById('setupNK').value.trim();
-  if(!nk){showToast('add your Notion key too');return}
   sessionStorage.setItem('cg_ak',ak);
-  sessionStorage.setItem('cg_nk',nk);
   document.getElementById('setupOverlay').classList.add('hidden');
   showToast("keys saved — let's go");
 }
 function initSetup(){
   const overlay=document.getElementById('setupOverlay');
-  if(getAK()&&getNK()){overlay.classList.add('hidden');return}
+  if(getAK()){overlay.classList.add('hidden');return}
 }
 document.querySelectorAll('.setup-field input').forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter')saveKeys()}));
 initSetup();
 
-function notionHeaders(){
-  if(!getNK()){document.getElementById('setupOverlay').classList.remove('hidden');throw new Error('Notion key needed — add it in setup');}
-  return{'Authorization':'Bearer '+getNK(),'Content-Type':'application/json','Notion-Version':NOTION_VERSION};
-}
+// Notion calls go via Netlify function to avoid CORS
+const PROXY='/.netlify/functions/notion-proxy';
 async function notionCreate(props){
-  const res=await fetch('https://api.notion.com/v1/pages',{method:'POST',headers:notionHeaders(),body:JSON.stringify({parent:{database_id:DB_ID},properties:props})});
+  const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',props})});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.message||'Notion error '+res.status);}
   return res.json();
 }
 async function notionUpdate(pageId,props){
-  const res=await fetch('https://api.notion.com/v1/pages/'+pageId,{method:'PATCH',headers:notionHeaders(),body:JSON.stringify({properties:props})});
+  const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'update',pageId,props})});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.message||'Notion update error '+res.status);}
   return res.json();
 }
 async function notionQuery(filter,sorts){
-  const body={page_size:50};if(filter)body.filter=filter;if(sorts)body.sorts=sorts;
-  const res=await fetch('https://api.notion.com/v1/databases/'+DB_ID+'/query',{method:'POST',headers:notionHeaders(),body:JSON.stringify(body)});
+  const res=await fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'query',filter,sorts})});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.message||'Notion query error '+res.status);}
   return res.json();
 }
